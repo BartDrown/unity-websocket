@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebSocket Example</title>
+    <link rel="stylesheet" href="https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+</head>
+
+<body>
+    <button id="explodeButton"
+        class="w-full h-64 bg-blue-500 hover:bg-red-400 text-white font-bold text-4xl py-2 px-4 border-b-4 border-red-700 hover:border-red-500 rounded">
+        EXPLODE
+    </button>
+    <canvas class="mx-auto" id="myCanvas" width="400" height="400"></canvas>
+    <ul id="messages"></ul>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+
+        const socket = io();
+
+        // const messages = document.getElementById('messages');
+
+
+        // socket.on('chat message', (message) => {
+        //     const li = document.createElement('li');
+        //     li.textContent = ` Vector2 = { x: ${message?.x}, y: ${message?.y} }`;
+        //     console.log(message)
+        //     messages.appendChild(li);
+        // });
+
+
+        const explodeButton = document.getElementById("explodeButton");
+        isHoldingExplodeButton = 0.0;
+
+
+        const canvas = document.getElementById("myCanvas");
+        canvas.width = window.innerWidth - 5;
+        canvas.height = window.innerWidth - 5;
+        const ctx = canvas.getContext("2d");
+
+        let isDragging = false;
+        let animationFrameId;
+        const circles = [];
+        let lastCircle;
+
+        canvas.style.border = "1px solid gray";
+
+        canvas.addEventListener("mousedown", (event) => {
+            isDragging = true;
+            sendWebSocketEvent();
+        });
+
+        canvas.addEventListener("touchstart", (event) => {
+            isDragging = true;
+            sendWebSocketEvent();
+        });
+
+        canvas.addEventListener("mousemove", (event) => {
+            if (isDragging) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = requestAnimationFrame(() => {
+                    sendWebSocketEvent(event);
+                });
+            }
+        });
+
+        canvas.addEventListener("touchmove", (event) => {
+            if (isDragging) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = requestAnimationFrame(() => {
+                    event.clientX = event.touches[0].clientX;
+                    event.clientY = event.touches[0].clientY;
+                    sendWebSocketEvent(event);
+                });
+            }
+        });
+
+
+        canvas.addEventListener("click", (event) => {
+
+            sendWebSocketEvent(event);
+        });
+
+        canvas.addEventListener("mouseup", () => {
+            resetWebSocketEvent()
+            isDragging = false;
+            cancelAnimationFrame(animationFrameId);
+        });
+
+        canvas.addEventListener("touchend", () => {
+            resetWebSocketEvent()
+            isDragging = false;
+            cancelAnimationFrame(animationFrameId);
+        });
+
+        let timeout = false;
+        explodeButton.addEventListener("touchstart", (event) => {
+            if (timeout == false) {
+                isHoldingExplodeButton = 1.0;
+                timeout = true;
+            } else {
+                setTimeout(() => { timeout = false }, 500)
+            }
+            sendWebSocketEvent();
+        });
+
+        explodeButton.addEventListener("click", (event) => {
+            if (timeout == false) {
+                isHoldingExplodeButton = 1.0;
+                timeout = true;
+            } else {
+                setTimeout(() => { timeout = false }, 500)
+            }
+
+
+            sendWebSocketEvent();
+        });
+
+        explodeButton.addEventListener("touchend", (event) => {
+            isHoldingExplodeButton = 0.0;
+            console.log("test touchend")
+
+            sendWebSocketEvent();
+        });
+
+        explodeButton.addEventListener("mouseup", (event) => {
+            isHoldingExplodeButton = 0.0;
+            console.log("test mouseup")
+            sendWebSocketEvent();
+        });
+
+
+        function resetWebSocketEvent() {
+            const vector = { x: 0.5, y: 0.5, isHoldingExplodeButton: 0.0 };
+            socket.emit('chat message', vector);
+        }
+
+        function sendWebSocketEvent(event) {
+            if (event) {
+                const rect = canvas.getBoundingClientRect();
+                const x = (event.clientX - rect.left) / rect.width;
+
+                const y = (event.clientY - rect.top) / rect.height;
+
+                const vector = { x, y, isHoldingExplodeButton };
+                socket.emit('chat message', vector);
+
+                const circle = { x, y, timestamp: Date.now() };
+
+                if (lastCircle) {
+                    circles.push(circle);
+                }
+                lastCircle = { x, y };
+
+                drawCanvas();
+            }
+        }
+
+        function drawCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = "gray";
+            const currentTime = Date.now();
+
+            circles.forEach((circle, index) => {
+                if (currentTime - circle.timestamp <= 1000) {
+                    ctx.beginPath();
+                    ctx.arc(circle.x * canvas.width, circle.y * canvas.height, 5, 0, 2 * Math.PI);
+                    ctx.fill();
+                } else {
+                    circles.splice(index, 1);
+                }
+            });
+
+            if (lastCircle) {
+                ctx.beginPath();
+                ctx.fillStyle = "red";
+                ctx.arc(lastCircle.x * canvas.width, lastCircle.y * canvas.height, 5, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 50);
+            ctx.lineTo(canvas.width / 2, canvas.height - 50)
+            ctx.strokeStyle = '#00640080';
+            ctx.lineWidth = 10;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(50, canvas.height / 2);
+            ctx.lineTo(canvas.width - 50, canvas.height / 2)
+            ctx.strokeStyle = '#00640080';
+            ctx.lineWidth = 10;
+            ctx.stroke();
+
+        }
+
+        function updateCanvas() {
+            const currentTime = Date.now();
+
+            for (let i = circles.length - 1; i >= 0; i--) {
+                if (currentTime - circles[i].timestamp > 1000) {
+                    circles.splice(i, 1); // Remove circles that exceed the lifetime
+                }
+            }
+
+            drawCanvas();
+        }
+
+        setInterval(updateCanvas, 50);
+
+        document.onload = () => {
+            setTimeout(() => {
+                const vector = { x: 0.0, y: 0.0, isHoldingExplodeButton: 0.0 };
+                socket.emit('chat message', vector);
+            }, 500)
+
+        }
+
+        window.onbeforeunload = function (e) {
+            return "Please click 'Stay on this Page' if you did this unintentionally";
+        };
+
+    </script>
+</body>
+
+</html>
